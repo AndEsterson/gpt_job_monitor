@@ -1,47 +1,14 @@
 import re
+import sys
+import json
 import requests
 import datetime
 import send_email
+import boto3
 from bs4 import BeautifulSoup
 from openai import OpenAI
 
-job_posting = """
-We’re looking for an experienced Proteomics/Mass Spectrometry Technician to join the Proteomics Facility at King’s College London, Denmark Hill Campus.
-
-The Proteomics Facility specialises in peptide and protein analysis using mass spectrometry. It offers a wide range of services, from protein identification to post-translational modification analysis and quantification.
-
-Our mission is to advance biological understanding and train the next generation of researchers in this vital field.
-
-The purpose of the role is to provide technical assistance and support to proteomic projects from King’s College London researchers and external organisations. This includes operation and maintenance of the Thermo Scientific Tribrid Orbitrap mass spectrometer, sample preparation, data analysis and management, report writing and day-to-day operation of general lab equipment in the facility, under the guidance of the Facility Manager and Deputy Manager.
-
-The successful candidate will deliver support in an organised, timely and efficient manner and be able to manage and prioritise their own workload. Strong commutation skills are a key aspect of the role, and the successful candidate will need to communicate effectively with clients, colleagues, and external partners.
-
-This role offers opportunities for development and growth and the facility is committed to supporting staff to reach their career aspirations.
-
-This post will be offered on an indefinite contract.
-
-This is a full-time post - 100% full time equivalent.
-
-Skills, knowledge, and experience
-
-Essential criteria
-
-    BSc/MSc, or equivalent experience in Chemistry, Biochemistry, or related subject with practical experience of working in a proteomics laboratory in an academic or industry setting.
-    Excellent technical knowledge of Orbitrap Tribrid MS equipment and nano liquid chromatography or similar high-end mass spectrometers.
-    Excellent knowledge of mass spectrometry data analysis, data interpretation and computational methods using software such as Proteome Discoverer, MaxQuant, Peaks Scaffold etc.
-    Experience in the preparation of biological samples to a high standard.
-    Experience of calibration and troubleshooting technical problems with MS and LC & UHPLC chromatography systems.
-    Excellent planning and organisational skills, with the ability to manage competing priorities.
-    Detailed and focused approach, ability to record and manage data accurately, and in accordance with GDPR and legislation requirements.
-    Strong commutations skills and ability to communicate effectively with colleagues, clients, and industry partners.
-    Good understanding of Health and Safety practices in a laboratory setting and knowledge of legal requirements and relevant policies, including the Human Tissue Authority Legislation and COSHH.
-
-Desirable criteria
-
-    Familiarity or expertise in R, python, or similar languages.
-    Able to demonstrate broad biology and proteomic skills.
-
-"""
+TODAY = datetime.date.today()
 
 example_qualified_job_posting = """
 Do you hold an MSc or PhD in artificial intelligence, data science or software engineers?
@@ -74,6 +41,9 @@ This job may involve some programming elements, but it is mainly a research posi
 You also do not meet the criteria for a senior lecturer position, which likely requires a PhD. 2/10
 """
 
+def clean_date(date):
+    return re.sub(r'(\d)(st|nd|rd|th)', r'\1', date)
+
 def get_job_specifics(url):
     job_specifics = {}
     response = requests.get(url)
@@ -84,38 +54,31 @@ def get_job_specifics(url):
             job_description_text = job_description_tag.get_text(strip=True)
             job_specifics.update({'description': job_description_text})
         else:
-            raise Exception(f"job description text missing for {url}")
-        
-        placed_on_th = soup.find('th', string='Placed On:')
-        if placed_on_th:
-            placed_on_date_str = placed_on_th.find_next('td').text.strip()
-            placed_on_date = datetime.datetime.strptime(placed_on_date_str, '%dth %B %Y').date()
-            job_specifics.update({'placed_on': placed_on_date})
-        else:
-            raise Exception(f"placed on date not found for {url}")
-        
+            return {'description': None, 'errored': True}
         return job_specifics
     else:
         raise Exception(f"request errored for {url}, {response.status_code}")
         
-def get_gpt_response(job_description):
+def get_gpt_response(job_description, params):
     client = OpenAI(api_key=params['api_key'])
     response = client.chat.completions.create(
   model="gpt-3.5-turbo",
+  temperature=0.4,
   messages=[
         {"role": "system", "content": """
-        You are a helpful assistant. You give brief answers ranking the relevance of job postings for a person with the following description:
+        You give brief answers ranking the relevance of job postings for a person with the following description:
         I have a master's degree in physics, with a project involving computational neuroscience. Since graduating,
         I have ~18 months of experience as a DevOps engineer, working with Python, Bash, AWS, terraform, kubernetes, git, postgreSQL.
         I do not hold a PhD, and don't have experience lecturing or doing experimental lab work.
-        I am looking for jobs that involve programming, especially cloud hosting or CI/CD, bonus points for roles with an ethical value.
-        You give a brief description of the benefits of the job and an overall score out of 10 based on value and relevancy of the person's experience
+        If the position is a software development position (or similar) then give no lower a score than 4/10
+        I am looking for jobs that involve programming, especially cloud hosting or CI/CD, bonus points for roles with an ethical value. Jobs in humanities fields should be ranked lower and jobs in STEM fields should be ranked more lowly, senior positions and positions that require a PhD should be ranked lowly
+        You give a brief description of the benefits of the job and an overall score out of 10 based on value and relevancy of the person's experience, ensure your recommendations are accurate to the experience of the person. Take a deep breath before answering.
         """},
         {"role": "user", "content": example_under_qualified_job_posting},
         {"role": "assistant", "content": example_under_qualified_job_response},
         {"role": "user", "content": example_qualified_job_posting},
         {"role": "assistant", "content": example_qualified_job_response},
-        {"role": "user", "content": job_posting},
+        {"role": "user", "content": job_description},
         ]
     )
     return response.choices[0].message.content
@@ -124,23 +87,35 @@ def extract_gpt_rating(gpt_response):
     ratings = re.findall("\d+\/10", gpt_response)
     return sum([int(rating.split('/')[0]) for rating in ratings])/len(ratings)
 
-def get_job_data():
-    url = 'https://www.jobs.ac.uk/search/?location=London%2C+UK&locationCoords%5B0%5D=51.5072178%2C-0.1275862&locality%5B0%5D=London&administrativeAreaLevel1%5B0%5D=England&administrativeAreaLevel2%5B0%5D=Greater+London&country%5B0%5D=United+Kingdom&country%5B1%5D=GB&distance=0&placeId=ChIJdd4hrwug2EcRmSrV3Vo6llI&activeFacet=nonAcademicDisciplineFacet&sortOrder=1&pageSize=25&startIndex=1'
+def format_raw_date_placed(posting_date, date_placed):
+    return datetime.datetime.strptime(f"{date_placed} {posting_date.year}", '%d %b %Y').date()
+
+def get_job_data(params, url, posting_date):
     response = requests.get(url)
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, 'html.parser')
-        job_entries = soup.find_all('a', href=True)
+        job_entries = soup.find_all('div', class_='j-search-result__text')
         jobs = []
         for entry in job_entries:
-            job_name = entry.get_text(strip=True)
-            job_link = "https://www.jobs.ac.uk" + entry['href']
+            href_section = entry.find('a', href=True)
+            job_name = href_section.get_text(strip=True)
+            job_link = "https://www.jobs.ac.uk" + href_section['href']
+            job_placed_on = format_raw_date_placed(
+                            posting_date,
+                            entry.find_parent()
+                                .find('strong', string=re.compile('Date Placed'))
+                                .find_parent()
+                                .text
+                                .replace('Date Placed:', '')
+                                .strip()
+                            )
             if job_link.startswith("https://www.jobs.ac.uk/job/"):
-                jobs.append({'name': job_name, 'link': job_link})
+                jobs.append({'name': job_name, 'link': job_link, 'placed_on': job_placed_on})
 
         for job in jobs:
-            job.update(get_job_specifics(job['link']))
-            if job['placed_on'] == datetime.date.today():
-                job.update({'gpt_response': get_gpt_response(job['description'])})
+            if job['placed_on'] == posting_date:
+                job.update(get_job_specifics(job['link']))
+                job.update({'gpt_response': get_gpt_response(job['description'], params)})
                 job.update({'gpt_rating': extract_gpt_rating(job['gpt_response'])})
         jobs = sorted(jobs, key=lambda j: j.get("gpt_rating", 0), reverse=True)
         return jobs
@@ -161,13 +136,24 @@ def get_parameters():
     )
     return json.loads(response['Parameter']['Value'])
 
-if __name__ == "__main__":
-    email_source = "gpt.andrew.esterson@gmail.com"
-    email_destination = "andrewesterson1@gmail.com"
-    params = get_parameters()
-    jobs = get_job_data(params)
-    filter_jobs(jobs)
-    send_email.send_email(params['email_source'], params['email_destination'], 
-                [job for job in jobs if job['important']],
-                [job for job in jobs if not job['important']])
+def lambda_handler(event, context):
+    if ({'email_source', 'email_destination', 'api_key'} - event.keys()):
+        params = get_parameters()
+    else:
+        params = event
+    for job_posting in params['job_postings']:
+        posting_date = TODAY - datetime.timedelta(params.get("shift_by_days", 0))
+        jobs = get_job_data(params, job_posting['url'], posting_date)
+        filter_jobs(jobs)
+        send_email.send_email(params['email_source'], params['email_destination'], 
+                [job for job in jobs if job['important'] and job.get("placed_on") == params.get("date", posting_date)],
+                [job for job in jobs if not job['important'] and (job.get("placed_on", None) == posting_date or job.get("errored", False))], posting_date, job_posting['name'])
 
+if __name__ == "__main__":
+    job_postings = [
+            {'name': 'London', 'url': 'https://www.jobs.ac.uk/search/?location=London%2C+UK&locationCoords%5B0%5D=51.5072178%2C-0.1275862&locality%5B0%5D=London&administrativeAreaLevel1%5B0%5D=England&administrativeAreaLevel2%5B0%5D=Greater+London&country%5B0%5D=United+Kingdom&country%5B1%5D=GB&distance=0&placeId=ChIJdd4hrwug2EcRmSrV3Vo6llI&activeFacet=nonAcademicDisciplineFacet&sortOrder=1&pageSize=100&startIndex=1'},
+            {'name': 'Cambridge', 'url': 'https://www.jobs.ac.uk/search/?location=Cambridge%2C+UK&locationCoords%5B0%5D=52.1950788%2C0.1312729&locality%5B0%5D=Cambridge&administrativeAreaLevel1%5B0%5D=England&administrativeAreaLevel2%5B0%5D=Cambridgeshire&country%5B0%5D=United+Kingdom&country%5B1%5D=GB&distance=0&placeId=ChIJLQEq84ld2EcRIT1eo-Ego2M&sortOrder=1&pageSize=100&startIndex=1'}
+        ]
+    event = {'email_source': sys.argv[1], 'email_destination': sys.argv[2], 'api_key': sys.argv[3], 'shift_by_days': int(sys.argv[4]), 'job_postings': job_postings}
+    context = ""
+    lambda_handler(event, context)
