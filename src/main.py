@@ -151,8 +151,8 @@ def lambda_handler(event, context):
 
 if __name__ == "__main__":
     job_postings = [
-            {'name': 'London', 'url': 'https://www.jobs.ac.uk/search/?location=London%2C+UK&locationCoords%5B0%5D=51.5072178%2C-0.1275862&locality%5B0%5D=London&administrativeAreaLevel1%5B0%5D=England&administrativeAreaLevel2%5B0%5D=Greater+London&country%5B0%5D=United+Kingdom&country%5B1%5D=GB&distance=0&placeId=ChIJdd4hrwug2EcRmSrV3Vo6llI&activeFacet=nonAcademicDisciplineFacet&sortOrder=1&pageSize=100&startIndex=1'},
-            {'name': 'Cambridge', 'url': 'https://www.jobs.ac.uk/search/?location=Cambridge%2C+UK&locationCoords%5B0%5D=52.1950788%2C0.1312729&locality%5B0%5D=Cambridge&administrativeAreaLevel1%5B0%5D=England&administrativeAreaLevel2%5B0%5D=Cambridgeshire&country%5B0%5D=United+Kingdom&country%5B1%5D=GB&distance=0&placeId=ChIJLQEq84ld2EcRIT1eo-Ego2M&sortOrder=1&pageSize=100&startIndex=1'}
+            {'name': 'London', 'url': 'https://www.jobs.ac.uk/search/?location=London%2C+UK&locationCoords%5B0%5D=51.5072178%2C-0.1275862&locality%5B0%5D=London&administrativeAreaLevel1%5B0%5D=England&administrativeAreaLevel2%5B0%5D=Greater+London&country%5B0%5D=United+Kingdom&country%5B1%5D=GB&distance=0&placeId=ChIJdd4hrwug2EcRmSrV3Vo6llI&activeFacet=nonAcademicDisciplineFacet&sortOrder=1&pageSize=1000&startIndex=1'},
+            {'name': 'Cambridge', 'url': 'https://www.jobs.ac.uk/search/?location=Cambridge%2C+UK&locationCoords%5B0%5D=52.1950788%2C0.1312729&locality%5B0%5D=Cambridge&administrativeAreaLevel1%5B0%5D=England&administrativeAreaLevel2%5B0%5D=Cambridgeshire&country%5B0%5D=United+Kingdom&country%5B1%5D=GB&distance=0&placeId=ChIJLQEq84ld2EcRIT1eo-Ego2M&sortOrder=1&pageSize=1000&startIndex=1'}
         ]
     event = {'email_source': sys.argv[1], 'email_destination': sys.argv[2], 'api_key': sys.argv[3], 'shift_by_days': int(sys.argv[4]), 'job_postings': job_postings}
     context = ""
