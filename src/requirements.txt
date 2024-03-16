@@ -1,0 +1,4 @@
+requests=2.31.0
+boto3=1.34.64
+beautifulsoup4=4.12.3
+openai=1.14.1

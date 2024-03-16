@@ -55,20 +55,20 @@ resource "aws_iam_role" "iam_for_lambda_jobs" {
   }
 }
 
-data "archive_file" "lambda_twitch_sentiment" {
+data "archive_file" "lambda_gpt_job_monitor" {
   type        = "zip"
   source_dir  = "src"
-  output_path = "lambda_gpt_job_monitor.zip"
+  output_path = "lambda_gpt_payload.zip"
 }
 
 resource "aws_lambda_function" "gpt_job_monitor" {
-  filename         = "lambda_sentiment_payload.zip"
+  filename         = "lambda_gpt_payload.zip"
   function_name    = "gpt_job_monitor"
-  role             = aws_iam_role.iam_for_lambda_sentiment.arn
+  role             = aws_iam_role.iam_for_lambda_jobs.arn
   handler          = "main.lambda_handler"
   timeout          = 900
   architectures    = ["arm64"]
   source_code_hash = data.archive_file.lambda_gpt_job_monitor.output_base64sha256
-  runtime          = "python3.12"
+  runtime          = "python3.11"
 }
 

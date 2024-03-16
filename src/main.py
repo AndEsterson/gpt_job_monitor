@@ -3,7 +3,6 @@ import sys
 import json
 import requests
 import datetime
-import send_email
 import boto3
 from bs4 import BeautifulSoup
 from openai import OpenAI
@@ -136,6 +135,36 @@ def get_parameters():
     )
     return json.loads(response['Parameter']['Value'])
 
+def send_email(source, destination, important_jobs, unimportant_jobs, date, job_posting_name):
+    email_body = ""
+    for job in important_jobs:
+        email_body += "\n" + job["name"] + "\n"
+        email_body += job["link"] + "\n"
+        email_body += job["gpt_response"] + "\n"  
+    email_body += "\n-------------------\n"        
+    for job in unimportant_jobs:
+        email_body += "\n" + job["name"] + "\n"
+        email_body += job["link"] + " " + str(job.get('gpt_rating', 'null')) + "/10" + "\n"
+    client = boto3.client("ses")
+    response = client.send_email(
+        Source=source,
+        Destination={
+            'ToAddresses': [
+                destination,
+            ]
+        },
+        Message={
+            'Subject': {
+                'Data': f"Postings for {job_posting_name} - {date}"
+            },
+            'Body': {
+                'Text': {
+                    'Data': email_body,
+                }
+            }
+        }
+    )
+
 def lambda_handler(event, context):
     if ({'email_source', 'email_destination', 'api_key'} - event.keys()):
         params = get_parameters()
@@ -145,7 +174,7 @@ def lambda_handler(event, context):
         posting_date = TODAY - datetime.timedelta(params.get("shift_by_days", 0))
         jobs = get_job_data(params, job_posting['url'], posting_date)
         filter_jobs(jobs)
-        send_email.send_email(params['email_source'], params['email_destination'], 
+        send_email(params['email_source'], params['email_destination'], 
                 [job for job in jobs if job['important'] and job.get("placed_on") == params.get("date", posting_date)],
                 [job for job in jobs if not job['important'] and (job.get("placed_on", None) == posting_date or job.get("errored", False))], posting_date, job_posting['name'])
 
