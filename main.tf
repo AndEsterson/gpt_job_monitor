@@ -69,6 +69,9 @@ resource "aws_ecr_repository" "gpt_job_monitor" {
   image_scanning_configuration {
     scan_on_push = true
   }
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_lambda_function" "gpt_job_monitor" {
